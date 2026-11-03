@@ -14,16 +14,18 @@
   "author": "Israel Godwin Essien",
   "type": "module",
   "main": "server.js",
-    "scripts": {
+  "scripts": {
     "start": "node server.js",
     "dev": "nodemon --env-file=.env server.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "dependencies": {
     "express": "^5.3.0",
-    "mongodb": "^7.7.0"
+    "mongodb": "^7.7.0",
+    "swagger-ui-express": "^5.0.1"
   },
   "devDependencies": {
-    "nodemon": "^3.1.14"
+    "nodemon": "^3.1.14",
+    "swagger-jsdoc": "^6.3.0"
   }
 }
