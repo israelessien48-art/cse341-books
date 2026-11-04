@@ -6,6 +6,23 @@ import swaggerSpec from "./swagger.js";
 
 const app = express();
 
+// VALIDATE PUBLICATION DATE
+function isValidPublicationDate(value) {
+  if (
+    typeof value !== "string" ||
+    !/^\d{4}-\d{2}-\d{2}$/.test(value)
+  ) {
+    return false;
+  }
+
+  const date = new Date(`${value}T00:00:00.000Z`);
+
+  return (
+    !Number.isNaN(date.getTime()) &&
+    date.toISOString().slice(0, 10) === value
+  );
+}
+
 app.use(express.json());
 
 // SWAGGER API DOCUMENTATION
@@ -64,6 +81,23 @@ app.get("/", (req, res) => {
  *           type: string
  *           format: date
  *           example: 1964-01-01
+ *     BookUpdate:
+ *       type: object
+ *       required:
+ *         - authorId
+ *         - title
+ *         - publicationDate
+ *       properties:
+ *         authorId:
+ *           type: string
+ *           example: a1
+ *         title:
+ *           type: string
+ *           example: No Longer at Ease
+ *         publicationDate:
+ *           type: string
+ *           format: date
+ *           example: 1960-01-01
  */
 
 /**
@@ -81,6 +115,22 @@ app.get("/", (req, res) => {
  *               type: array
  *               items:
  *                 $ref: '#/components/schemas/Book'
+ *       500:
+ *         description: Internal server error
+ *   post:
+ *     summary: Create a new book
+ *     tags: [Books]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             $ref: '#/components/schemas/BookInput'
+ *     responses:
+ *       201:
+ *         description: Book created successfully
+ *       400:
+ *         description: Invalid book information, duplicate ID, or author not found
  *       500:
  *         description: Internal server error
  *
@@ -102,6 +152,48 @@ app.get("/", (req, res) => {
  *           application/json:
  *             schema:
  *               $ref: '#/components/schemas/Book'
+ *       404:
+ *         description: Book not found
+ *       500:
+ *         description: Internal server error
+ *   put:
+ *     summary: Update an existing book
+ *     tags: [Books]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         example: b1
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             $ref: '#/components/schemas/BookUpdate'
+ *     responses:
+ *       200:
+ *         description: Book updated successfully
+ *       400:
+ *         description: Invalid book information or attempt to change book ID
+ *       404:
+ *         description: Book not found
+ *       500:
+ *         description: Internal server error
+ *   delete:
+ *     summary: Delete a book
+ *     tags: [Books]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         example: b1
+ *     responses:
+ *       204:
+ *         description: Book deleted successfully
  *       404:
  *         description: Book not found
  *       500:
@@ -146,6 +238,187 @@ app.get("/books/:id", async (req, res) => {
     return res.status(200).json(book);
   } catch (error) {
     console.error("Error retrieving book:", error.message);
+
+    return res.status(500).json({
+      message: "Internal server error"
+    });
+  }
+});
+
+// CREATE A NEW BOOK
+app.post("/books", async (req, res) => {
+  try {
+    const { id, authorId, title, publicationDate } = req.body;
+
+    if (
+      typeof id !== "string" ||
+      !id.trim() ||
+      typeof authorId !== "string" ||
+      !authorId.trim() ||
+      typeof title !== "string" ||
+      !title.trim() ||
+      !isValidPublicationDate(publicationDate)
+    ) {
+      return res.status(400).json({
+        message: "Please provide a valid id, authorId, title, and publicationDate in YYYY-MM-DD format"
+      });
+    }
+
+    const db = await connectToDatabase();
+    const books = db.collection("books");
+    const authors = db.collection("authors");
+
+    const existingAuthor = await authors.findOne({
+      id: authorId.trim()
+    });
+
+    if (!existingAuthor) {
+      return res.status(400).json({
+        message: "The specified author does not exist"
+      });
+    }
+
+    const existingBook = await books.findOne({
+      id: id.trim()
+    });
+
+    if (existingBook) {
+      return res.status(400).json({
+        message: "A book with this ID already exists"
+      });
+    }
+
+    const newBook = {
+      id: id.trim(),
+      authorId: authorId.trim(),
+      title: title.trim(),
+      publicationDate
+    };
+
+    await books.insertOne(newBook);
+
+    return res.status(201).json({
+      id: newBook.id,
+      authorId: newBook.authorId,
+      title: newBook.title,
+      publicationDate: newBook.publicationDate
+    });
+  } catch (error) {
+    console.error("Error creating book:", error.message);
+
+    return res.status(500).json({
+      message: "Internal server error"
+    });
+  }
+});
+
+// UPDATE AN EXISTING BOOK
+app.put("/books/:id", async (req, res) => {
+  try {
+    const bookId = req.params.id;
+    const { authorId, title, publicationDate, id } = req.body;
+
+    // Prevent changing the custom book ID
+    if (id !== undefined) {
+      return res.status(400).json({
+        message: "The book ID cannot be changed"
+      });
+    }
+
+    // Validate the update fields
+    if (
+      typeof authorId !== "string" ||
+      !authorId.trim() ||
+      typeof title !== "string" ||
+      !title.trim() ||
+      !isValidPublicationDate(publicationDate)
+    ) {
+      return res.status(400).json({
+        message: "Please provide a valid authorId, title, and publicationDate in YYYY-MM-DD format"
+      });
+    }
+
+    const db = await connectToDatabase();
+    const books = db.collection("books");
+    const authors = db.collection("authors");
+
+    // Check whether the book exists
+    const existingBook = await books.findOne({
+      id: bookId
+    });
+
+    if (!existingBook) {
+      return res.status(404).json({
+        message: "Book not found"
+      });
+    }
+
+    // Check whether the referenced author exists
+    const existingAuthor = await authors.findOne({
+      id: authorId.trim()
+    });
+
+    if (!existingAuthor) {
+      return res.status(400).json({
+        message: "The specified author does not exist"
+      });
+    }
+
+    // Update the book and remove its old author field
+    await books.updateOne(
+      { id: bookId },
+      {
+        $set: {
+          authorId: authorId.trim(),
+          title: title.trim(),
+          publicationDate
+        },
+        $unset: {
+          author: ""
+        }
+      }
+    );
+
+    const updatedBook = await books.findOne(
+      { id: bookId },
+      { projection: { _id: 0 } }
+    );
+
+    return res.status(200).json(updatedBook);
+  } catch (error) {
+    console.error("Error updating book:", error.message);
+
+    return res.status(500).json({
+      message: "Internal server error"
+    });
+  }
+});
+
+// DELETE A BOOK
+app.delete("/books/:id", async (req, res) => {
+  try {
+    const bookId = req.params.id;
+
+    const db = await connectToDatabase();
+    const books = db.collection("books");
+
+    const existingBook = await books.findOne({
+      id: bookId
+    });
+
+    if (!existingBook) {
+      return res.status(404).json({
+        message: "Book not found"
+      });
+    }
+
+    await books.deleteOne({
+      id: bookId
+    });
+
+    return res.status(204).send();
+  } catch (error) {
+    console.error("Error deleting book:", error.message);
 
     return res.status(500).json({
       message: "Internal server error"
