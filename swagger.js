@@ -14,6 +14,10 @@ const options = {
       {
         url: "http://localhost:3000",
         description: "Local development server"
+      },
+      {
+        url: "https://cse341-books-pb8f.onrender.com",
+        description: "Production server (Render)"
       }
     ]
   },
